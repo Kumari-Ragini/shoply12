@@ -1,70 +1,56 @@
-name: Deploy Shoply (React + Node API) to AWS EC2
+name: Deploy Shoply to EC2
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      # ---------- SETUP NODE (for runner) -----------
-      - name: Setup Node (for frontend build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'   # use the node version your project needs
+    # ---------------------------
+    # 1️⃣ SETUP SSH CONNECTION
+    - name: Setup SSH Key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/privkey.pem
+        chmod 600 ~/.ssh/privkey.pem
 
-      # ---------- FRONTEND BUILD -----------
-      - name: Install frontend deps
-        working-directory: ./client
-        run: npm ci
+    # ---------------------------
+    # 2️⃣ COPY CLIENT FILES TO EC2
+    - name: Copy shoply-client to EC2
+      run: |
+        rsync -avz -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
+        ./shoply-client/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-client/
 
-      - name: Build frontend
-        working-directory: ./client
-        run: npm run build
+    # ---------------------------
+    # 3️⃣ COPY API FILES TO EC2
+    - name: Copy shoply-api to EC2
+      run: |
+        rsync -avz -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
+        ./shoply-api/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-api/
 
-      # ---------- BACKEND PREP -----------
-      - name: Install backend deps (CI)
-        working-directory: ./shoply-api
-        run: npm ci
+    # ---------------------------
+    # 4️⃣ INSTALL DEPENDENCIES + RESTART SERVICES
+    - name: Install & Restart on EC2
+      run: |
+        ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
+          echo "➡ Updating Client…"
+          cd /var/www/shoply-client
+          npm install
+          npm run build
 
-      # ---------- SETUP SSH ----------
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          echo "➡ Updating API…"
+          cd /var/www/shoply-api
+          npm install
 
-      # ---------- UPLOAD FRONTEND ----------
-      - name: Upload frontend build to EC2
-        run: |
-          rsync -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" -avz --delete ./client/build/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.EC2_CLIENT_PATH }}/
+          echo "➡ Restarting PM2…"
+          pm2 restart all || pm2 start index.js --name shoply-api
+          sudo systemctl restart nginx
 
-      # ---------- UPLOAD BACKEND ----------
-      - name: Upload backend code to EC2
-        run: |
-          rsync -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" -avz --delete ./shoply-api/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.EC2_API_PATH }}/
-
-      # ---------- INSTALL ON SERVER & RESTART ----------
-      - name: Install production deps and restart API
-        run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} bash -l <<'EOSSH'
-            set -e
-            cd "${{ secrets.EC2_API_PATH }}"
-            # make sure files owned by the remote user (optional)
-            sudo chown -R $USER:$USER "${{ secrets.EC2_API_PATH }}" || true
-            # install production dependencies
-            npm install --production
-            # If you have an ecosystem.config.js, use startOrRestart, otherwise restart or start the entry file
-            if [ -f ecosystem.config.js ]; then
-              pm2 startOrRestart ecosystem.config.js --env production
-            else
-              pm2 restart shoply-api || pm2 start index.js --name shoply-api
-            fi
-            # save pm2 process list so it resurrects after reboot
-            pm2 save
-          EOSSH
+          echo "✔ DONE DEPLOYING!"
+        EOF
