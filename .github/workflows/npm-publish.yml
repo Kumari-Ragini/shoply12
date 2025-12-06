@@ -3,7 +3,7 @@ name: Deploy Shoply Client
 on:
   push:
     branches:
-      - main  # Or the branch you want to deploy from
+      - main
 
 jobs:
   deploy:
@@ -22,9 +22,12 @@ jobs:
     - name: Install rsync
       run: sudo apt-get update && sudo apt-get install -y rsync
 
-    - name: Deploy shoply
+    - name: Ensure remote folder exists
+      run: |
+        ssh -i ~/.ssh/Project12.pem -o StrictHostKeyChecking=no ubuntu@13.127.163.222 \
+        "mkdir -p /var/www/shoply-client && chown ubuntu:ubuntu /var/www/shoply-client"
+
+    - name: Deploy frontend
       run: |
         rsync -avz --delete -e "ssh -i ~/.ssh/Project12.pem -o StrictHostKeyChecking=no" \
         ./shoply/ ubuntu@13.127.163.222:/var/www/shoply-client/
-
-
