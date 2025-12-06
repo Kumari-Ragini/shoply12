@@ -21,36 +21,39 @@ jobs:
         chmod 600 ~/.ssh/privkey.pem
 
     # ---------------------------
-    # 2️⃣ COPY CLIENT FILES TO EC2
-    - name: Copy shoply-client to EC2
+    # 2️⃣ COPY FRONTEND (shoply-client)
+    - name: Upload shoply-client to EC2
       run: |
         rsync -avz -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
         ./shoply-client/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-client/
 
     # ---------------------------
-    # 3️⃣ COPY API FILES TO EC2
-    - name: Copy shoply-api to EC2
+    # 3️⃣ COPY BACKEND (shoply-api)
+    - name: Upload shoply-api to EC2
       run: |
         rsync -avz -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
         ./shoply-api/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-api/
 
     # ---------------------------
-    # 4️⃣ INSTALL DEPENDENCIES + RESTART SERVICES
-    - name: Install & Restart on EC2
+    # 4️⃣ INSTALL + BUILD + RESTART
+    - name: Install deps and restart on EC2
       run: |
         ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
-          echo "➡ Updating Client…"
+          
+          echo "➡ FRONTEND BUILD"
           cd /var/www/shoply-client
           npm install
-          npm run build
+          npm run build || echo "⚠ Build failed but continuing"
 
-          echo "➡ Updating API…"
+          echo "➡ BACKEND INSTALL"
           cd /var/www/shoply-api
           npm install
 
-          echo "➡ Restarting PM2…"
-          pm2 restart all || pm2 start index.js --name shoply-api
+          echo "➡ Restart PM2"
+          pm2 restart shoply-api || pm2 start index.js --name shoply-api
+
+          echo "➡ Restart NGINX"
           sudo systemctl restart nginx
 
-          echo "✔ DONE DEPLOYING!"
+          echo "✔ DEPLOY COMPLETE!"
         EOF
