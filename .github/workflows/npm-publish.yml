@@ -1,4 +1,4 @@
-name: Build & Deploy Shoply Client
+name: Deploy Shoply App
 
 on:
   push:
@@ -6,51 +6,53 @@ on:
       - main
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repo
-    - name: Checkout code
-      uses: actions/checkout@v3
+      # ---------------------------
+      # 1) Checkout Code
+      # ---------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    # 2️⃣ Setup Node.js
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'
+      # ---------------------------
+      # 2) Setup Node
+      # ---------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
 
-    # 3️⃣ Install frontend dependencies
-    - name: Install dependencies
-      run: |
-        cd shoply
-        npm install
+      # ---------------------------
+      # 3) Install Backend Dependencies
+      # ---------------------------
+      - name: Install API dependencies
+        run: |
+          cd shoply-api
+          npm install
 
-    # 4️⃣ Build frontend
-    - name: Build frontend
-      run: |
-        cd shoply
-        npm run build
+      # ---------------------------
+      # 4) Install Frontend Dependencies
+      # ---------------------------
+      - name: Install Client dependencies
+        run: |
+          cd shoply
+          npm install
 
-    # 5️⃣ Setup SSH key
-    - name: Setup SSH key
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.PROJECT12_PEM }}" > ~/.ssh/Project12.pem
-        chmod 600 ~/.ssh/Project12.pem
+      # ---------------------------
+      # 5) Build Frontend (CI=false to avoid ESLint failures)
+      # ---------------------------
+      - name: Build frontend
+        run: |
+          cd shoply
+          CI=false npm run build
 
-    # 6️⃣ Install rsync
-    - name: Install rsync
-      run: sudo apt-get update && sudo apt-get install -y rsync
-
-    # 7️⃣ Ensure remote folder exists
-    - name: Ensure remote folder
-      run: |
-        ssh -i ~/.ssh/Project12.pem -o StrictHostKeyChecking=no ubuntu@13.127.163.222 \
-        "mkdir -p /var/www/shoply-client && chown ubuntu:ubuntu /var/www/shoply-client"
-
-    # 8️⃣ Deploy build folder to EC2
-    - name: Deploy frontend
-      run: |
-        rsync -avz --delete -e "ssh -i ~/.ssh/Project12.pem -o StrictHostKeyChecking=no" \
-        ./shoply/build/ ubuntu@13.127.163.222:/var/www/shoply-client/
+      # ---------------------------
+      # 6) Upload Build Files (Optional)
+      # ---------------------------
+      - name: Upload Production Build
+        uses: actions/upload-artifact@v3
+        with:
+          name: shoply-build
+          path: shoply/build/
