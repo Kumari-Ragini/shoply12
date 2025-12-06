@@ -1,67 +1,28 @@
-name: Deploy Shoply to EC2
+name: Deploy Shoply Client
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main  # Or the branch you want to deploy from
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-    # 1️⃣ Setup SSH Key
-    - name: Setup SSH Key
+    - name: Setup SSH key
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/privkey.pem
-        chmod 600 ~/.ssh/privkey.pem
+        echo "${{ secrets.PROJECT12_PEM }}" > ~/.ssh/Project12.pem
+        chmod 600 ~/.ssh/Project12.pem
 
-    # 2️⃣ Debug Repo Structure
-    - name: List repo folders
+    - name: Install rsync
+      run: sudo apt-get update && sudo apt-get install -y rsync
+
+    - name: Deploy shoply-client
       run: |
-        echo "Repo directory:"
-        ls -la
-        echo "Frontend (shoply):"
-        ls -la shoply || echo "❌ shoply NOT FOUND"
-        echo "Backend (shoply-api):"
-        ls -la shoply-api || echo "❌ shoply-api NOT FOUND"
-
-    # 3️⃣ Upload Frontend (shoply → /var/www/shoply-client)
-    - name: Upload Frontend to EC2
-      run: |
-        rsync -avz --delete \
-        -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
-        shoply/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-client/
-
-    # 4️⃣ Upload Backend (shoply-api → /var/www/shoply-api)
-    - name: Upload Backend to EC2
-      run: |
-        rsync -avz --delete \
-        -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
-        shoply-api/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-api/
-
-    # 5️⃣ Install Dependencies + Restart Services
-    - name: Install deps & restart on EC2
-      run: |
-        ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
-        
-          echo "➡ Frontend BUILD"
-          cd /var/www/shoply-client
-          npm install
-          npm run build || echo "⚠ Build failed (still continuing)"
-
-          echo "➡ Backend INSTALL"
-          cd /var/www/shoply-api
-          npm install
-
-          echo "➡ Restart PM2"
-          pm2 restart shoply-api || pm2 start index.js --name shoply-api
-
-          echo "➡ Restart Nginx"
-          sudo systemctl restart nginx
-
-          echo "🎉 Deployment Completed Successfully!"
-        EOF
+        rsync -avz -e "ssh -i ~/.ssh/Project12.pem -o StrictHostKeyChecking=no" \
+        ./shoply-client/ ubuntu@13.127.163.222:/var/www/shoply-client/
