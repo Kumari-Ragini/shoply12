@@ -22,7 +22,8 @@ jobs:
     - name: Install rsync
       run: sudo apt-get update && sudo apt-get install -y rsync
 
-    - name: Deploy shoply-client
+    - name: Deploy shoply
       run: |
         rsync -avz -e "ssh -i ~/.ssh/Project12.pem -o StrictHostKeyChecking=no" \
-        ./shoply-client/ ubuntu@13.127.163.222:/var/www/shoply-client/
+        ./shoply/ ubuntu@13.127.163.222:/var/www/shoply/
+
