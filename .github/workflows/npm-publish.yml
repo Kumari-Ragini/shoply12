@@ -12,48 +12,56 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # ---------------------------
-    # 1️⃣ SETUP SSH CONNECTION
+    # 1️⃣ Setup SSH Key
     - name: Setup SSH Key
       run: |
         mkdir -p ~/.ssh
         echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/privkey.pem
         chmod 600 ~/.ssh/privkey.pem
 
-    # ---------------------------
-    # 2️⃣ COPY FRONTEND (shoply-client)
-    - name: Upload shoply-client to EC2
+    # 2️⃣ Debug Repo Structure
+    - name: List repo folders
       run: |
-        rsync -avz -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
-        ./shoply-client/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-client/
+        echo "Repo directory:"
+        ls -la
+        echo "Frontend (shoply):"
+        ls -la shoply || echo "❌ shoply NOT FOUND"
+        echo "Backend (shoply-api):"
+        ls -la shoply-api || echo "❌ shoply-api NOT FOUND"
 
-    # ---------------------------
-    # 3️⃣ COPY BACKEND (shoply-api)
-    - name: Upload shoply-api to EC2
+    # 3️⃣ Upload Frontend (shoply → /var/www/shoply-client)
+    - name: Upload Frontend to EC2
       run: |
-        rsync -avz -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
-        ./shoply-api/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-api/
+        rsync -avz --delete \
+        -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
+        shoply/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-client/
 
-    # ---------------------------
-    # 4️⃣ INSTALL + BUILD + RESTART
-    - name: Install deps and restart on EC2
+    # 4️⃣ Upload Backend (shoply-api → /var/www/shoply-api)
+    - name: Upload Backend to EC2
+      run: |
+        rsync -avz --delete \
+        -e "ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no" \
+        shoply-api/ ubuntu@${{ secrets.EC2_PUBLIC_IP }}:/var/www/shoply-api/
+
+    # 5️⃣ Install Dependencies + Restart Services
+    - name: Install deps & restart on EC2
       run: |
         ssh -i ~/.ssh/privkey.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
-          
-          echo "➡ FRONTEND BUILD"
+        
+          echo "➡ Frontend BUILD"
           cd /var/www/shoply-client
           npm install
-          npm run build || echo "⚠ Build failed but continuing"
+          npm run build || echo "⚠ Build failed (still continuing)"
 
-          echo "➡ BACKEND INSTALL"
+          echo "➡ Backend INSTALL"
           cd /var/www/shoply-api
           npm install
 
           echo "➡ Restart PM2"
           pm2 restart shoply-api || pm2 start index.js --name shoply-api
 
-          echo "➡ Restart NGINX"
+          echo "➡ Restart Nginx"
           sudo systemctl restart nginx
 
-          echo "✔ DEPLOY COMPLETE!"
+          echo "🎉 Deployment Completed Successfully!"
         EOF
