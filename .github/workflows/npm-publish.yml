@@ -1,0 +1,70 @@
+name: Deploy Shoply (React + Node API) to AWS EC2
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ---------- SETUP NODE (for runner) -----------
+      - name: Setup Node (for frontend build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'   # use the node version your project needs
+
+      # ---------- FRONTEND BUILD -----------
+      - name: Install frontend deps
+        working-directory: ./client
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./client
+        run: npm run build
+
+      # ---------- BACKEND PREP -----------
+      - name: Install backend deps (CI)
+        working-directory: ./shoply-api
+        run: npm ci
+
+      # ---------- SETUP SSH ----------
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      # ---------- UPLOAD FRONTEND ----------
+      - name: Upload frontend build to EC2
+        run: |
+          rsync -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" -avz --delete ./client/build/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.EC2_CLIENT_PATH }}/
+
+      # ---------- UPLOAD BACKEND ----------
+      - name: Upload backend code to EC2
+        run: |
+          rsync -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" -avz --delete ./shoply-api/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.EC2_API_PATH }}/
+
+      # ---------- INSTALL ON SERVER & RESTART ----------
+      - name: Install production deps and restart API
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} bash -l <<'EOSSH'
+            set -e
+            cd "${{ secrets.EC2_API_PATH }}"
+            # make sure files owned by the remote user (optional)
+            sudo chown -R $USER:$USER "${{ secrets.EC2_API_PATH }}" || true
+            # install production dependencies
+            npm install --production
+            # If you have an ecosystem.config.js, use startOrRestart, otherwise restart or start the entry file
+            if [ -f ecosystem.config.js ]; then
+              pm2 startOrRestart ecosystem.config.js --env production
+            else
+              pm2 restart shoply-api || pm2 start index.js --name shoply-api
+            fi
+            # save pm2 process list so it resurrects after reboot
+            pm2 save
+          EOSSH
